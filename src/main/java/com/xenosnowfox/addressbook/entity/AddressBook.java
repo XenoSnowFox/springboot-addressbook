@@ -10,15 +10,14 @@ import lombok.ToString;
 import javax.persistence.CascadeType;
 import javax.persistence.Column;
 import javax.persistence.Entity;
-import javax.persistence.FetchType;
 import javax.persistence.GeneratedValue;
 import javax.persistence.GenerationType;
 import javax.persistence.Id;
-import javax.persistence.ManyToMany;
+import javax.persistence.OneToMany;
 import javax.validation.constraints.NotEmpty;
-import java.util.HashSet;
-import java.util.Objects;
 import java.util.Set;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 @ToString
 @Entity
@@ -46,35 +45,22 @@ public class AddressBook {
 	 * Collection of contacts that are listed within the address book.
 	 */
 	@JsonIgnore
-	@ManyToMany(mappedBy = "addressBooks", fetch = FetchType.LAZY, cascade = CascadeType.PERSIST)
-	private final Set<Contact> contacts = new HashSet<>();
+	@OneToMany(mappedBy = "addressBook", cascade = CascadeType.ALL)
+	private Set<AddressBookContact> addressBookContacts;
 
 	/**
 	 * Instantiates a new instance.
 	 *
-	 * @param withName Name of the new address book.
+	 * @param withName
+	 * 		Name of the new address book.
+	 * @param contacts
+	 *      Array of contacts to associate with this address book.
 	 */
-	public AddressBook(final String withName) {
+	public AddressBook(final String withName, Contact... contacts) {
 		this.name = withName;
+		this.addressBookContacts = Stream.of(contacts)
+				.map(contact -> new AddressBookContact(this, contact))
+				.collect(Collectors.toSet());
 	}
 
-	@Override
-	public boolean equals(final Object other) {
-		if (!(other instanceof AddressBook)) {
-			return false;
-		}
-
-		if (other == this) {
-			return true;
-		}
-
-		AddressBook addressBook = (AddressBook) other;
-		return addressBook.getId()
-				.equals(this.getId());
-	}
-
-	@Override
-	public int hashCode() {
-		return Objects.hash(this.id, this.name);
-	}
 }
