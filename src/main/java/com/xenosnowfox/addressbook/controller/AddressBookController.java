@@ -1,12 +1,13 @@
 package com.xenosnowfox.addressbook.controller;
 
 import com.xenosnowfox.addressbook.entity.AddressBook;
+import com.xenosnowfox.addressbook.entity.AddressBookContact;
 import com.xenosnowfox.addressbook.entity.Contact;
 import com.xenosnowfox.addressbook.exception.AddressBookNotFoundException;
 import com.xenosnowfox.addressbook.exception.ContactNotFoundException;
-import com.xenosnowfox.addressbook.repository.AddressBookRepository;
-import com.xenosnowfox.addressbook.repository.ContactRepository;
 import com.xenosnowfox.addressbook.response.CollectionResponse;
+import com.xenosnowfox.addressbook.service.AddressBookService;
+import com.xenosnowfox.addressbook.service.ContactService;
 import io.swagger.v3.oas.annotations.Operation;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
@@ -21,8 +22,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import javax.validation.Valid;
-import java.util.HashSet;
-import java.util.Set;
+import java.util.Collection;
+import java.util.stream.Collectors;
 
 /**
  * Rest endpoints for managing an address book.
@@ -32,10 +33,10 @@ import java.util.Set;
 public class AddressBookController {
 
 	@Autowired
-	private AddressBookRepository addressBookRepository;
+	private AddressBookService addressBookService;
 
 	@Autowired
-	private ContactRepository contactRepository;
+	private ContactService contactService;
 
 	/**
 	 * API endpoint that returns a collection of address books.
@@ -51,8 +52,7 @@ public class AddressBookController {
 			, operationId = "getAllAddressBooks"
 	)
 	public CollectionResponse<AddressBook> getAllAddressBooks() {
-		Iterable<AddressBook> addressBooks = this.addressBookRepository.findAll();
-		return new CollectionResponse<>(addressBooks);
+		return new CollectionResponse<>(this.addressBookService.findAll());
 	}
 
 	/**
@@ -73,7 +73,7 @@ public class AddressBookController {
 			, operationId = "getAddressBook"
 	)
 	public AddressBook getAddressBook(@PathVariable("id") final Integer withId) throws AddressBookNotFoundException {
-		return this.addressBookRepository.findById(withId)
+		return this.addressBookService.findById(withId)
 				.orElseThrow(AddressBookNotFoundException::new);
 	}
 
@@ -98,25 +98,8 @@ public class AddressBookController {
 	)
 	public ResponseEntity<Void> deleteAddressBook(@PathVariable("id") Integer withId)
 			throws AddressBookNotFoundException {
-		AddressBook addressBook = this.getAddressBook(withId);
-		Set<Contact> contactsToDelete = new HashSet<>();
-
-		// unlink the address book from all it's contacts
-		for (Contact contact : addressBook.getContacts()) {
-			Set<AddressBook> addressBooks = contact.getAddressBooks();
-			addressBooks.remove(addressBook);
-			this.contactRepository.save(contact);
-
-			if (addressBooks.size() == 0) {
-				contactsToDelete.add(contact);
-			}
-		}
-
-		// delete the address book itself
-		this.addressBookRepository.delete(addressBook);
-
-		// delete any orphaned contacts
-		contactsToDelete.forEach(this.contactRepository::delete);
+		final AddressBook addressBook = this.getAddressBook(withId);
+		this.addressBookService.delete(addressBook);
 		return new ResponseEntity<>(HttpStatus.NO_CONTENT);
 	}
 
@@ -136,7 +119,7 @@ public class AddressBookController {
 			, operationId = "createAddressBook"
 	)
 	public AddressBook createAddressBook(@Valid @RequestBody AddressBook withAddressBook) {
-		return this.addressBookRepository.save(withAddressBook);
+		return this.addressBookService.save(withAddressBook);
 	}
 
 	/**
@@ -158,8 +141,12 @@ public class AddressBookController {
 	)
 	public CollectionResponse<Contact> getContactsFromAddressBook(@PathVariable("id") Integer withId)
 			throws AddressBookNotFoundException {
-		return new CollectionResponse<>(this.getAddressBook(withId)
-				.getContacts());
+		Collection<Contact> contacts = this.getAddressBook(withId)
+				.getAddressBookContacts()
+				.stream()
+				.map(AddressBookContact::getContact)
+				.collect(Collectors.toSet());
+		return new CollectionResponse<>(contacts);
 	}
 
 	/**
@@ -192,17 +179,23 @@ public class AddressBookController {
 			, @PathVariable("contact_id") final Integer withContactId
 	) throws AddressBookNotFoundException, ContactNotFoundException {
 		AddressBook addressBook = this.getAddressBook(withAddressId);
-		Contact contact = this.contactRepository.findById(withContactId)
+		AddressBookContact addressBookContact = addressBook.getAddressBookContacts()
+				.stream()
+				.filter(item -> item.getContact()
+						.getId()
+						.equals(withContactId))
+				.findAny()
 				.orElseThrow(ContactNotFoundException::new);
-		Set<AddressBook> contactAddressBookLinks = contact.getAddressBooks();
-		if (!contactAddressBookLinks.remove(addressBook)) {
-			throw new ContactNotFoundException();
-		}
 
-		if (contactAddressBookLinks.size() == 0) {
-			this.contactRepository.delete(contact);
-		} else {
-			this.contactRepository.save(contact);
+		addressBook.getAddressBookContacts()
+				.remove(addressBookContact);
+		this.addressBookService.save(addressBook);
+
+		// check if the contact needs to be deleted
+		Contact contact = addressBookContact.getContact();
+		if (contact.getAddressBookContacts()
+				.size() == 0) {
+			this.contactService.delete(contact);
 		}
 
 		return new ResponseEntity<>(HttpStatus.NO_CONTENT);
@@ -232,8 +225,7 @@ public class AddressBookController {
 			, @RequestBody final Contact withContact
 	) throws AddressBookNotFoundException {
 		AddressBook addressBook = this.getAddressBook(withAddressId);
-		withContact.getAddressBooks()
-				.add(addressBook);
-		return this.contactRepository.save(withContact);
+		withContact.addAddressBooks(addressBook);
+		return this.contactService.save(withContact);
 	}
 }

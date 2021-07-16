@@ -1,10 +1,11 @@
 package com.xenosnowfox.addressbook.controller;
 
 import com.xenosnowfox.addressbook.entity.AddressBook;
+import com.xenosnowfox.addressbook.entity.AddressBookContact;
 import com.xenosnowfox.addressbook.entity.Contact;
 import com.xenosnowfox.addressbook.exception.ContactNotFoundException;
-import com.xenosnowfox.addressbook.repository.ContactRepository;
 import com.xenosnowfox.addressbook.response.CollectionResponse;
+import com.xenosnowfox.addressbook.service.ContactService;
 import io.swagger.v3.oas.annotations.Operation;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
@@ -17,6 +18,9 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.Set;
+import java.util.stream.Collectors;
+
 /**
  * Rest endpoints for managing contacts.
  */
@@ -25,7 +29,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class ContactController {
 
 	@Autowired
-	private ContactRepository contactRepository;
+	private ContactService contactService;
 
 	/**
 	 * API endpoint that returns a collection of contact from across all address books.
@@ -41,7 +45,7 @@ public class ContactController {
 			, operationId = "getAllContacts"
 	)
 	public CollectionResponse<Contact> getAllContacts() {
-		return new CollectionResponse<>(this.contactRepository.findAll());
+		return new CollectionResponse<>(this.contactService.findAll());
 	}
 
 	/**
@@ -62,7 +66,7 @@ public class ContactController {
 			, operationId = "getContact"
 	)
 	public Contact getContact(@PathVariable("id") final Integer withId) throws ContactNotFoundException {
-		return this.contactRepository.findById(withId)
+		return this.contactService.findById(withId)
 				.orElseThrow(ContactNotFoundException::new);
 	}
 
@@ -85,8 +89,12 @@ public class ContactController {
 	)
 	public CollectionResponse<AddressBook> getClientAddressBooks(@PathVariable("id") final Integer withId)
 			throws ContactNotFoundException {
-		Contact contact = this.getContact(withId);
-		return new CollectionResponse<>(contact.getAddressBooks());
+		Set<AddressBook> addressBookSet = this.getContact(withId)
+				.getAddressBookContacts()
+				.stream()
+				.map(AddressBookContact::getAddressBook)
+				.collect(Collectors.toSet());
+		return new CollectionResponse<>(addressBookSet);
 	}
 
 	/**
@@ -108,7 +116,7 @@ public class ContactController {
 	)
 	public ResponseEntity<Void> deleteContact(@PathVariable("id") Integer withId) throws ContactNotFoundException {
 		Contact contact = this.getContact(withId);
-		this.contactRepository.delete(contact);
+		this.contactService.delete(contact);
 		return new ResponseEntity<>(HttpStatus.NO_CONTENT);
 	}
 
@@ -140,7 +148,7 @@ public class ContactController {
 				.clear();
 		contact.getPhoneNumbers()
 				.addAll(withContact.getPhoneNumbers());
-		this.contactRepository.save(contact);
+		this.contactService.save(contact);
 		return contact;
 	}
 }
