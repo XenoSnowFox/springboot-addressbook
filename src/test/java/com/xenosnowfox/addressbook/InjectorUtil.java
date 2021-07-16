@@ -1,4 +1,4 @@
-package com.xenosnowfox.addressbook.controller;
+package com.xenosnowfox.addressbook;
 
 import com.xenosnowfox.addressbook.entity.AddressBook;
 import com.xenosnowfox.addressbook.entity.Contact;
@@ -9,6 +9,7 @@ import org.apache.commons.lang3.RandomStringUtils;
 
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.stream.Collectors;
@@ -46,28 +47,31 @@ public class InjectorUtil {
 	/**
 	 * Helper method that injects a randomly generated contact into the provided address books.
 	 *
-	 * @param withAddressBookRepository
-	 * 		Repository to insert the address into.
 	 * @param withContactRepository
 	 * 		Repository to insert the contact into.
-	 * @param withAddressBooks
-	 * 		Address Books to add the contact new
 	 * @return Randomly created contact.
 	 */
-	public Contact injectRandomContact(final AddressBookRepository withAddressBookRepository, final ContactRepository withContactRepository, final AddressBook... withAddressBooks) {
-		final String name = RandomStringUtils.randomAlphanumeric(1, 100);
-		final List<String> phoneNumbers = IntStream.generate(() -> ThreadLocalRandom.current()
+	public Contact injectRandomContact(final ContactRepository withContactRepository) {
+		final String name = generateRandomContactName();
+		final List<String> phoneNumbers = generateRandomPhoneNumbers();
+		return withContactRepository.save(new Contact(name, phoneNumbers));
+	}
+
+	public String generateRandomContactName() {
+		return RandomStringUtils.randomAlphabetic(1).toUpperCase(Locale.ROOT)
+				+ RandomStringUtils.randomAlphabetic(1, 25).toLowerCase(Locale.ROOT)
+				+ " "
+				+ RandomStringUtils.randomAlphabetic(1).toUpperCase(Locale.ROOT)
+				+ RandomStringUtils.randomAlphabetic(1, 25).toLowerCase(Locale.ROOT);
+	}
+
+	public List<String> generateRandomPhoneNumbers() {
+		return IntStream.generate(() -> ThreadLocalRandom.current()
 				.nextInt(400000000, 500000000))
 				.limit(ThreadLocalRandom.current()
 						.nextInt(1, 10))
 				.boxed()
 				.map(i -> "0" + i)
 				.collect(Collectors.toList());
-
-		final Contact contact = withContactRepository.save(new Contact(name, phoneNumbers));
-		List.of(withAddressBooks)
-				.forEach(contact.getAddressBooks()::add);
-		withContactRepository.save(contact);
-		return contact;
 	}
 }
