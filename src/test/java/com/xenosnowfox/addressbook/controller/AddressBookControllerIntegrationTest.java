@@ -1,18 +1,20 @@
 package com.xenosnowfox.addressbook.controller;
 
+import com.xenosnowfox.addressbook.InjectorUtil;
 import com.xenosnowfox.addressbook.entity.AddressBook;
+import com.xenosnowfox.addressbook.entity.Contact;
 import com.xenosnowfox.addressbook.exception.AddressBookNotFoundException;
 import com.xenosnowfox.addressbook.repository.AddressBookRepository;
 import com.xenosnowfox.addressbook.repository.ContactRepository;
 import com.xenosnowfox.addressbook.response.CollectionResponse;
 import org.apache.commons.lang3.RandomStringUtils;
-import org.hibernate.SessionFactory;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.ResponseEntity;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.junit.jupiter.SpringExtension;
 import org.springframework.transaction.annotation.Propagation;
@@ -31,8 +33,6 @@ import java.util.stream.StreamSupport;
 @ExtendWith(SpringExtension.class)
 public class AddressBookControllerIntegrationTest {
 
-	private static SessionFactory sessionFactory;
-
 	@Autowired
 	private AddressBookController addressBookController;
 
@@ -43,7 +43,7 @@ public class AddressBookControllerIntegrationTest {
 	private ContactRepository contactRepository;
 
 	@Test
-	@Transactional(propagation= Propagation.REQUIRED)
+	@Transactional(propagation = Propagation.REQUIRED)
 	@DisplayName("Ensure that getAddressBook returns the correct data")
 	public void testGetAddressBookSuccessfullyReturnsTheCorrectAddressBook() {
 		// Set up our control data
@@ -59,7 +59,7 @@ public class AddressBookControllerIntegrationTest {
 	}
 
 	@Test
-	@Transactional(propagation= Propagation.REQUIRED)
+	@Transactional(propagation = Propagation.REQUIRED)
 	@DisplayName("Ensure that getAddressBook throws an exception if the requested address book does not exist")
 	public void testGetAddressBookThrowsExceptionIdBookDoesNotExist() {
 		// Set up our control data
@@ -74,7 +74,7 @@ public class AddressBookControllerIntegrationTest {
 	}
 
 	@Test
-	@Transactional(propagation= Propagation.REQUIRED)
+	@Transactional(propagation = Propagation.REQUIRED)
 	@DisplayName("Ensure that getAddressBooks returns all data")
 	public void testGetAddressBookSuccessfullyReturnsTheCorrectData() {
 		// Set up our control data
@@ -92,7 +92,7 @@ public class AddressBookControllerIntegrationTest {
 	}
 
 	@Test
-	@Transactional(propagation= Propagation.REQUIRED)
+	@Transactional(propagation = Propagation.REQUIRED)
 	@DisplayName("Ensure that createAddressBook correctly inserts a new address book")
 	public void testCreateAddressBookCorrectlyInsertsNewAddressBook() {
 
@@ -114,6 +114,7 @@ public class AddressBookControllerIntegrationTest {
 	}
 
 	@Test
+	@Transactional(propagation = Propagation.REQUIRED)
 	@DisplayName("Ensure that deleteAddressBook correctly remove an empty address book")
 	public void testDeleteAddressBookCorrectlyRemoveAnEmptyAddressBook() {
 		// set up our control data
@@ -134,7 +135,7 @@ public class AddressBookControllerIntegrationTest {
 	}
 
 	@Test
-	@Transactional(propagation= Propagation.REQUIRED)
+	@Transactional(propagation = Propagation.REQUIRED)
 	@DisplayName("Ensure that deleteAddressBook only removes the requested address book")
 	public void testDeleteAddressBookOnlyRemovesRequestedAddressBook() {
 		// set up the control data
@@ -163,6 +164,83 @@ public class AddressBookControllerIntegrationTest {
 		// Assert that the remaining items remained in the repository
 		for (AddressBook item : collection) {
 			Assertions.assertTrue(expected.contains(item));
+		}
+	}
+
+	@Test
+	@Transactional(propagation = Propagation.REQUIRED)
+	@DisplayName("Ensure a user can create a new contact entry for a given address book")
+	public void testCreateNewContactInAddressBook() {
+		// Set up control data
+		AddressBook addressBook = InjectorUtil.injectRandomAddressBook(this.addressBookRepository);
+
+		final String contactName = InjectorUtil.generateRandomContactName();
+		final List<String> phoneNumbers = InjectorUtil.generateRandomPhoneNumbers();
+		final Contact expectedContact = new Contact(contactName, phoneNumbers);
+
+		final Contact actualContact = this.addressBookController.createNewContactInAddressBook(
+				addressBook.getId(), expectedContact);
+
+		Assertions.assertEquals(contactName, actualContact.getName());
+		Assertions.assertEquals(phoneNumbers, actualContact.getPhoneNumbers());
+		Assertions.assertNotEquals(0, actualContact.getAddressBookContacts()
+				.size());
+		Assertions.assertTrue(
+				actualContact.getAddressBookContacts()
+						.stream()
+						.allMatch(addressBookContact -> addressBookContact.getAddressBook()
+								.equals(addressBook))
+		);
+	}
+
+	@Test
+	@Transactional(propagation = Propagation.REQUIRED)
+	@DisplayName(
+			"Ensure a user can be removed from a single Address Book, whilst persisting in additional address books")
+	public void textDeleteContactFromAddressBook() {
+		// Set up control data
+		final AddressBook addressBook1 = InjectorUtil.injectRandomAddressBook(this.addressBookRepository);
+		final AddressBook addressBook2 = InjectorUtil.injectRandomAddressBook(this.addressBookRepository);
+		final Contact contact = InjectorUtil.injectRandomContact(this.contactRepository, addressBook1, addressBook2);
+
+		// attempt to remove the contact from the first address book
+		final ResponseEntity<Void> response = this.addressBookController.deleteContactFromAddressBook(
+				addressBook1.getId(), contact.getId());
+		Assertions.assertEquals(204, response.getStatusCodeValue());
+
+		// ensure the contact itself still exists
+		Optional<Contact> actualContact = this.contactRepository.findById(contact.getId());
+		Assertions.assertTrue(actualContact.isPresent());
+
+		// ensure the contact is in the correct address books
+		Assertions.assertTrue(actualContact.get()
+				.getAddressBookContacts()
+				.stream()
+				.noneMatch(addressBookContact -> addressBookContact.getAddressBook()
+						.equals(addressBook1)));
+		Assertions.assertTrue(actualContact.get()
+				.getAddressBookContacts()
+				.stream()
+				.allMatch(addressBookContact -> addressBookContact.getAddressBook()
+						.equals(addressBook2)));
+	}
+
+	@Test
+	@Transactional(propagation = Propagation.REQUIRED)
+	@DisplayName("Ensure a list of users can be retrieved from an address book")
+	public void testGetContactsFromAddressBook() {
+		// Set up control data
+		final AddressBook addressBook1 = InjectorUtil.injectRandomAddressBook(this.addressBookRepository);
+		final Set<Contact> contacts1 = InjectorUtil.injectRandomNumberOfContacts(this.contactRepository, addressBook1);
+
+		final AddressBook addressBook2 = InjectorUtil.injectRandomAddressBook(this.addressBookRepository);
+		final Set<Contact> contacts2 = InjectorUtil.injectRandomNumberOfContacts(this.contactRepository, addressBook2);
+
+		final CollectionResponse<Contact> response = this.addressBookController.getContactsFromAddressBook(addressBook1.getId());
+		Assertions.assertEquals(contacts1.size(), response.getCount());
+		for (final Contact contact : response.getItems()) {
+			Assertions.assertTrue(contacts1.contains(contact));
+			Assertions.assertFalse(contacts2.contains(contact));
 		}
 	}
 }
